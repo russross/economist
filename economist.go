@@ -20,7 +20,7 @@ const (
 var Zipfile = os.Getenv("HOME") + "/Downloads/*The*Economist*.zip"
 
 var (
-	IsSourceFile        = regexp.MustCompile(`^(\d+) (.*?) - (.*\.mp3)$`)
+	IsSourceFile        = regexp.MustCompile(`^(?:Issue *\d+ *- *)?(\d+) (.*?) - (.*\.mp3)$`)
 	NonWord             = regexp.MustCompile(`[^\w\.]+`)
 	Underscores         = regexp.MustCompile(`__+`)
 	LeadTrailUnderscore = regexp.MustCompile(`^_|_$`)

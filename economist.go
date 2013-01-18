@@ -7,16 +7,17 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"time"
 )
 
 const (
 	Source        = "/tmp/ec"
-	Target        = "/media/economist/ec"
-	Concurrent    = 6
+	Target        = "/tmp/economist"
 	ScalingFactor = "2" // volume scaling factor
 )
 
+var Concurrent = runtime.NumCPU()
 var Zipfile = os.Getenv("HOME") + "/Downloads/*The*Economist*.zip"
 
 var (
@@ -68,6 +69,14 @@ func main() {
 	if err = exec.Command("unzip", "-q", zip).Run(); err != nil {
 		log.Fatal("Unzipping file: ", err)
 	}
+
+	// schedule cleanup for the end
+	defer func() {
+		// delete the source directory
+		if err = os.RemoveAll(Source); err != nil {
+			log.Fatal("Removing source directory: ", err)
+		}
+	}()
 
 	// blow away last week on the ЅD drive
 	log.Print("Clearing last week from SD drive...")
@@ -123,20 +132,15 @@ func main() {
 	}
 
 	// now actually do the copying/encoding
-	idle := make(chan bool, Concurrent)
+	available := make(chan bool, Concurrent)
 	ack := make(chan bool)
-
-	// fill the list of idle tokens
-	for i := 0; i < Concurrent; i++ {
-		idle <- true
-	}
 
 	// handle each individual job
 	go func() {
 		section := ""
 		for _, job := range script {
-			// get a token
-			<-idle
+			// get a slot
+			available <- true
 
 			pieces := TargetName.FindStringSubmatch(job.Target)
 			if len(pieces) != 3 {
@@ -170,7 +174,7 @@ func main() {
 				}
 
 				ack <- true
-				idle <- true
+				<-available
 			}(job, article)
 
 			// pause a bit so it can (probably) get started
@@ -195,9 +199,5 @@ func main() {
 		log.Fatal("Syncing: ", err)
 	}
 
-	// delete the source directory
-	if err = os.RemoveAll(Source); err != nil {
-		log.Fatal("Removing source directory: ", err)
-	}
 	log.Print("Finished")
 }

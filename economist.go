@@ -13,12 +13,12 @@ import (
 
 const (
 	Source        = "/tmp/ec"
-	Target        = "/tmp/economist"
 	ScalingFactor = "2" // volume scaling factor
 )
 
 var Concurrent = runtime.NumCPU()
 var Zipfile = os.Getenv("HOME") + "/Downloads/*The*Economist*.zip"
+var Target = "/media/" + os.Getenv("USER") + "/economist/ec"
 
 var (
 	IsSourceFile        = regexp.MustCompile(`^(?:Issue *\d+ *- *)?(\d+) (.*?) - (.*\.mp3)$`)
@@ -38,6 +38,8 @@ type Pair struct {
 }
 
 func main() {
+	start := time.Now()
+
 	// make sure we have the latest edition downloaded (and only it)
 	ziplist, err := filepath.Glob(Zipfile)
 	if err != nil {
@@ -181,7 +183,7 @@ func main() {
 			// before we launch the next one
 			// this helps keep the files in the file system mostly
 			// in play order
-			time.Sleep(1e8)
+			time.Sleep(100 * time.Millisecond)
 		}
 
 	}()
@@ -199,5 +201,6 @@ func main() {
 		log.Fatal("Syncing: ", err)
 	}
 
-	log.Print("Finished")
+	elapsed := time.Since(start)
+	log.Printf("Finished in %v", elapsed-elapsed%time.Second)
 }

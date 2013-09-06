@@ -14,7 +14,7 @@ import (
 
 const (
 	Source        = "/tmp/ec"
-	ScalingFactor = "2" // volume scaling factor
+	ScalingFactor = "2.5" // volume scaling factor
 )
 
 var Concurrent = runtime.NumCPU()

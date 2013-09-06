@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"runtime"
 	"time"
 )
@@ -45,10 +46,11 @@ func main() {
 	if err != nil {
 		log.Fatal("Finding zip file: ", err)
 	}
-	if len(ziplist) != 1 {
-		log.Fatal("Wrong number of zip files: ", len(ziplist))
+	if len(ziplist) == 0 {
+		log.Fatal("No zip file found")
 	}
-	zip := ziplist[0]
+	sort.Strings(ziplist)
+	zip := ziplist[len(ziplist)-1]
 	_, filename := filepath.Split(zip)
 	log.Print(filename)
 

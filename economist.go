@@ -7,19 +7,27 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"runtime"
+	"sort"
 	"time"
 )
 
 const (
 	Source        = "/tmp/ec"
-	ScalingFactor = "2.5" // volume scaling factor
+	ScalingFactor = "3" // volume scaling factor
 )
 
 var Concurrent = runtime.NumCPU()
 var Zipfile = os.Getenv("HOME") + "/Downloads/*The*Economist*.zip"
 var Target = "/media/" + os.Getenv("USER") + "/economist/ec"
+
+var SkipSections = map[string]bool{
+	"The_Americas":           true,
+	"Asia":                   true,
+	"China":                  true,
+	"Middle_East_and_Africa": true,
+	"Europe":                 true,
+}
 
 var (
 	IsSourceFile        = regexp.MustCompile(`^(?:Issue *\d+ *- *)?(\d+) (.*?) - (.*\.mp3)$`)
@@ -121,8 +129,17 @@ func main() {
 		article = LonelyS3.ReplaceAllString(article, "s.")
 		article = LeadTrailUnderscore.ReplaceAllString(article, "")
 
+		if SkipSections[section] {
+			if section != oldsec {
+				oldsec = section
+				log.Printf("Skipping section %s", section)
+			}
+			continue
+		}
+
 		if section != oldsec {
 			oldsec = section
+
 			seccount++
 			secfolder = fmt.Sprintf("%s/%02d-%s", Target, seccount, section)
 			if err = os.Mkdir(secfolder, 0755); err != nil {
@@ -158,16 +175,26 @@ func main() {
 
 			go func(pair *Pair, article string) {
 				log.Print("    ", article)
+
+				// copy the file over
 				cmd := exec.Command(
-					"lame",
-					"--quiet",
-					"--scale", ScalingFactor,
+					"cp",
 					pair.Source,
 					pair.Target)
 				if err := cmd.Run(); err != nil {
-					log.Fatal("Encoding ", pair.Source, ": ", err)
+					log.Fatal("Copying ", pair.Source, ": ", err)
 				}
 
+				// scale the volume
+				cmd = exec.Command(
+					"mp3gain",
+					"-g", ScalingFactor,
+					pair.Source)
+				if err := cmd.Run(); err != nil {
+					log.Fatal("Scaling volume for ", pair.Source, ": ", err)
+				}
+
+				// sync
 				fp, err := os.Open(pair.Target)
 				if err != nil {
 					log.Fatal("Opening file: ", err)

@@ -189,9 +189,9 @@ func main() {
 				cmd = exec.Command(
 					"mp3gain",
 					"-g", ScalingFactor,
-					pair.Source)
+					pair.Target)
 				if err := cmd.Run(); err != nil {
-					log.Fatal("Scaling volume for ", pair.Source, ": ", err)
+					log.Fatal("Scaling volume for ", pair.Target, ": ", err)
 				}
 
 				// sync

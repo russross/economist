@@ -11,7 +11,6 @@ import (
 	"regexp"
 	"runtime"
 	"sort"
-	"syscall"
 	"time"
 )
 
@@ -21,15 +20,6 @@ const (
 
 var Concurrent = runtime.NumCPU()
 var Zipfile = os.Getenv("HOME") + "/Downloads/*The*Economist*.zip"
-var Target = "/media/" + os.Getenv("USER") + "/economist/ec"
-
-var SkipSections = map[string]bool{
-	"The_Americas":           true,
-	"Asia":                   true,
-	"China":                  true,
-	"Middle_East_and_Africa": true,
-	"Europe":                 true,
-}
 
 var (
 	IsSourceFile        = regexp.MustCompile(`^(?:Issue *\d+ *- *)?(\d+) (.*?) - (.*\.mp3)$`)
@@ -54,7 +44,7 @@ func main() {
 	// make sure we have the latest edition downloaded
 	var zipfile string
 	if len(os.Args) < 2 {
-		ziplist, err := filepath.Glob(Zipfile)
+		ziplist, err := filepath.Glob(filepath.FromSlash(Zipfile))
 		if err != nil {
 			log.Fatal("Finding zip file: ", err)
 		}
@@ -62,7 +52,7 @@ func main() {
 			log.Fatal("No zip file found")
 		}
 		sort.Strings(ziplist)
-		zipfile = ziplist[len(ziplist)-1]
+		zipfile = filepath.ToSlash(ziplist[len(ziplist)-1])
 	} else if len(os.Args) == 2 {
 		zipfile = os.Args[1]
 	} else {
@@ -104,7 +94,7 @@ func main() {
 	if err = os.Mkdir(Target, 0755); err != nil {
 		log.Fatal("Making target directory: ", err)
 	}
-	syscall.Sync()
+	sync()
 
 	// kill section intros and rearrange into a directory per section
 	var script []*Pair
@@ -177,7 +167,7 @@ func main() {
 				log.Print("    ", article)
 
 				// copy the file over
-				if err := ioutil.WriteFile(pair.Target, contents[pair.Source], 0644); err != nil {
+				if err := ioutil.WriteFile(filepath.FromSlash(pair.Target), contents[pair.Source], 0644); err != nil {
 					log.Fatalf("Error writing file %s: %v", pair.Target, err)
 				}
 
@@ -193,7 +183,7 @@ func main() {
 				*/
 
 				// sync
-				fp, err := os.Open(pair.Target)
+				fp, err := os.Open(filepath.FromSlash(pair.Target))
 				if err != nil {
 					log.Fatal("Opening file: ", err)
 				}
@@ -210,7 +200,7 @@ func main() {
 			// before we launch the next one
 			// this helps keep the files in the file system mostly
 			// in play order
-			time.Sleep(50 * time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 		}
 
 	}()
@@ -221,8 +211,8 @@ func main() {
 	}
 
 	// final sync
-	syscall.Sync()
-	syscall.Sync()
+	sync()
+	sync()
 
 	elapsed := time.Since(start)
 	log.Printf("Finished in %v", elapsed-elapsed%time.Second)

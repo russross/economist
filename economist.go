@@ -19,7 +19,7 @@ const (
 )
 
 var Concurrent = runtime.NumCPU()
-var Zipfile = os.Getenv("HOME") + "/Downloads/*The*Economist*.zip"
+var Zipfile = filepath.Join(os.Getenv("HOME"), "Downloads", "*The*Economist*.zip")
 
 var (
 	IsSourceFile        = regexp.MustCompile(`^(?:Issue *\d+ *- *)?(\d+) (.*?) - (.*\.mp3)$`)
@@ -44,7 +44,7 @@ func main() {
 	// make sure we have the latest edition downloaded
 	var zipfile string
 	if len(os.Args) < 2 {
-		ziplist, err := filepath.Glob(filepath.FromSlash(Zipfile))
+		ziplist, err := filepath.Glob(Zipfile)
 		if err != nil {
 			log.Fatal("Finding zip file: ", err)
 		}
@@ -52,7 +52,7 @@ func main() {
 			log.Fatal("No zip file found")
 		}
 		sort.Strings(ziplist)
-		zipfile = filepath.ToSlash(ziplist[len(ziplist)-1])
+		zipfile = ziplist[len(ziplist)-1]
 	} else if len(os.Args) == 2 {
 		zipfile = os.Args[1]
 	} else {
@@ -131,14 +131,14 @@ func main() {
 			oldsec = section
 
 			seccount++
-			secfolder = fmt.Sprintf("%s/%02d-%s", Target, seccount, section)
+			secfolder = filepath.Join(Target, fmt.Sprintf("%02d-%s", seccount, section))
 			if err = os.Mkdir(secfolder, 0755); err != nil {
 				log.Fatal("Creating section folder ", secfolder, ": ", err)
 			}
 		}
 		script = append(script, &Pair{
 			elt,
-			fmt.Sprintf("%s/%s-%s", secfolder, track, article),
+			filepath.Join(secfolder, fmt.Sprintf("%s-%s", track, article)),
 		})
 	}
 
@@ -167,7 +167,7 @@ func main() {
 				log.Print("    ", article)
 
 				// copy the file over
-				if err := ioutil.WriteFile(filepath.FromSlash(pair.Target), contents[pair.Source], 0644); err != nil {
+				if err := ioutil.WriteFile(pair.Target, contents[pair.Source], 0644); err != nil {
 					log.Fatalf("Error writing file %s: %v", pair.Target, err)
 				}
 
@@ -183,7 +183,7 @@ func main() {
 				*/
 
 				// sync
-				fp, err := os.Open(filepath.FromSlash(pair.Target))
+				fp, err := os.Open(pair.Target)
 				if err != nil {
 					log.Fatal("Opening file: ", err)
 				}

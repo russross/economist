@@ -4,10 +4,11 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 	"syscall"
 )
 
-var Target = "/media/" + os.Getenv("USER") + "/economist/ec"
+var Target = filepath.Join(string(filepath.Separator), "media", os.Getenv("USER"), "economist", "ec")
 var SkipSections = map[string]bool{
 	"The_Americas":           true,
 	"Asia":                   true,

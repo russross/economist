@@ -1,19 +1,21 @@
 package main
 
 import (
+	"archive/zip"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"os"
-	"os/exec"
+	//"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"sort"
+	"syscall"
 	"time"
 )
 
 const (
-	Source        = "/tmp/ec"
 	ScalingFactor = "3" // volume scaling factor
 )
 
@@ -49,46 +51,50 @@ type Pair struct {
 func main() {
 	start := time.Now()
 
-	// make sure we have the latest edition downloaded (and only it)
-	ziplist, err := filepath.Glob(Zipfile)
-	if err != nil {
-		log.Fatal("Finding zip file: ", err)
+	// make sure we have the latest edition downloaded
+	var zipfile string
+	if len(os.Args) < 2 {
+		ziplist, err := filepath.Glob(Zipfile)
+		if err != nil {
+			log.Fatal("Finding zip file: ", err)
+		}
+		if len(ziplist) == 0 {
+			log.Fatal("No zip file found")
+		}
+		sort.Strings(ziplist)
+		zipfile = ziplist[len(ziplist)-1]
+	} else if len(os.Args) == 2 {
+		zipfile = os.Args[1]
+	} else {
+		log.Fatalf("Usage: %s [filename]", os.Args[0])
 	}
-	if len(ziplist) == 0 {
-		log.Fatal("No zip file found")
-	}
-	sort.Strings(ziplist)
-	zip := ziplist[len(ziplist)-1]
-	_, filename := filepath.Split(zip)
+	_, filename := filepath.Split(zipfile)
 	log.Print(filename)
-
-	// wipe out last week
-	log.Print("Removing last week's issue...")
-	if err = os.RemoveAll(Source); err != nil {
-		log.Fatal("Clearing ", Source, ": ", err)
-	}
-
-	// make and go to the source directory
-	if err = os.MkdirAll(Source, 0755); err != nil {
-		log.Fatal("Creating source directory: ", err)
-	}
-	if err = os.Chdir(Source); err != nil {
-		log.Fatal("Changing to source directory: ", err)
-	}
 
 	// unzip this week
 	log.Print("Unzipping this week's issue...")
-	if err = exec.Command("unzip", "-q", zip).Run(); err != nil {
-		log.Fatal("Unzipping file: ", err)
+	contents := make(map[string][]byte)
+	files := []string{}
+	r, err := zip.OpenReader(zipfile)
+	if err != nil {
+		log.Fatalf("Opening %s: %v", zipfile, err)
 	}
+	defer r.Close()
 
-	// schedule cleanup for the end
-	defer func() {
-		// delete the source directory
-		if err = os.RemoveAll(Source); err != nil {
-			log.Fatal("Removing source directory: ", err)
+	for _, f := range r.File {
+		rc, err := f.Open()
+		if err != nil {
+			log.Fatalf("Error opening file %s: %v", f.Name, err)
 		}
-	}()
+		data, err := ioutil.ReadAll(rc)
+		if err != nil {
+			log.Fatalf("Error reading file %s: %v", f.Name, err)
+		}
+		rc.Close()
+		contents[f.Name] = data
+		files = append(files, f.Name)
+	}
+	r.Close()
 
 	// blow away last week on the ЅD drive
 	log.Print("Clearing last week from SD drive...")
@@ -98,15 +104,9 @@ func main() {
 	if err = os.Mkdir(Target, 0755); err != nil {
 		log.Fatal("Making target directory: ", err)
 	}
-	if err = exec.Command("sync").Run(); err != nil {
-		log.Fatal("Syncing: ", err)
-	}
+	syscall.Sync()
 
 	// kill section intros and rearrange into a directory per section
-	files, err := filepath.Glob("*.mp3")
-	if err != nil {
-		log.Fatal("Getting list of mp3 files: ", err)
-	}
 	var script []*Pair
 	var oldsec, secfolder string
 	seccount := -1
@@ -177,22 +177,20 @@ func main() {
 				log.Print("    ", article)
 
 				// copy the file over
-				cmd := exec.Command(
-					"cp",
-					pair.Source,
-					pair.Target)
-				if err := cmd.Run(); err != nil {
-					log.Fatal("Copying ", pair.Source, ": ", err)
+				if err := ioutil.WriteFile(pair.Target, contents[pair.Source], 0644); err != nil {
+					log.Fatalf("Error writing file %s: %v", pair.Target, err)
 				}
 
-				// scale the volume
-				cmd = exec.Command(
-					"mp3gain",
-					"-g", ScalingFactor,
-					pair.Target)
-				if err := cmd.Run(); err != nil {
-					log.Fatal("Scaling volume for ", pair.Target, ": ", err)
-				}
+				/*
+					// scale the volume
+					cmd := exec.Command(
+						"mp3gain",
+						"-g", ScalingFactor,
+						pair.Target)
+					if err := cmd.Run(); err != nil {
+						log.Fatal("Scaling volume for ", pair.Target, ": ", err)
+					}
+				*/
 
 				// sync
 				fp, err := os.Open(pair.Target)
@@ -212,7 +210,7 @@ func main() {
 			// before we launch the next one
 			// this helps keep the files in the file system mostly
 			// in play order
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(50 * time.Millisecond)
 		}
 
 	}()
@@ -223,12 +221,8 @@ func main() {
 	}
 
 	// final sync
-	if err = exec.Command("sync").Run(); err != nil {
-		log.Fatal("Syncing: ", err)
-	}
-	if err = exec.Command("sync").Run(); err != nil {
-		log.Fatal("Syncing: ", err)
-	}
+	syscall.Sync()
+	syscall.Sync()
 
 	elapsed := time.Since(start)
 	log.Printf("Finished in %v", elapsed-elapsed%time.Second)

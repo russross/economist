@@ -1,14 +1,13 @@
-// +build !darwin,linux,!windows
+// +build darwin,!linux,!windows
 
 package main
 
 import (
-	"os"
 	"path/filepath"
 	"syscall"
 )
 
-var Target = filepath.Join(string(filepath.Separator), "media", os.Getenv("USER"), "economist", "ec")
+var Target = filepath.Join(string(filepath.Separator), "volumes", "ECONOMIST", "ec")
 var SkipSections = map[string]bool{
 	"The_Americas":           true,
 	"Asia":                   true,

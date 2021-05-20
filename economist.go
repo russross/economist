@@ -3,10 +3,11 @@ package main
 import (
 	"archive/zip"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"os"
-	//"os/exec"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -15,7 +16,8 @@ import (
 )
 
 const (
-	ScalingFactor = "3" // volume scaling factor
+	ScalingFactor = "3"   // volume scaling factor
+	TempoFactor   = "1.7" // tempo (speed up) factor
 )
 
 var Concurrent = runtime.NumCPU()
@@ -34,11 +36,13 @@ var (
 )
 
 type Pair struct {
-	Source string
-	Target string
+	Source     string
+	Target     string
+	TargetFile *os.File
 }
 
 func main() {
+	log.SetFlags(log.Ltime)
 	start := time.Now()
 
 	// make sure we have the latest edition downloaded
@@ -46,10 +50,10 @@ func main() {
 	if len(os.Args) < 2 {
 		ziplist, err := filepath.Glob(Zipfile)
 		if err != nil {
-			log.Fatal("Finding zip file: ", err)
+			log.Fatal("finding zip file: ", err)
 		}
 		if len(ziplist) == 0 {
-			log.Fatal("No zip file found")
+			log.Fatal("no zip file found")
 		}
 		sort.Strings(ziplist)
 		zipfile = ziplist[len(ziplist)-1]
@@ -67,18 +71,18 @@ func main() {
 	files := []string{}
 	r, err := zip.OpenReader(zipfile)
 	if err != nil {
-		log.Fatalf("Opening %s: %v", zipfile, err)
+		log.Fatalf("opening %s: %v", zipfile, err)
 	}
 	defer r.Close()
 
 	for _, f := range r.File {
 		rc, err := f.Open()
 		if err != nil {
-			log.Fatalf("Error opening file %s: %v", f.Name, err)
+			log.Fatalf("opening file %s: %v", f.Name, err)
 		}
 		data, err := ioutil.ReadAll(rc)
 		if err != nil {
-			log.Fatalf("Error reading file %s: %v", f.Name, err)
+			log.Fatalf("reading file %s: %v", f.Name, err)
 		}
 		rc.Close()
 		contents[f.Name] = data
@@ -86,15 +90,15 @@ func main() {
 	}
 	r.Close()
 
-	// blow away last week on the ЅD drive
+	// blow away last week on the SD drive
 	log.Print("Clearing last week from SD drive...")
 	if err = os.RemoveAll(Target); err != nil {
-		log.Fatal("Clearing SD drive: ", err)
+		log.Fatal("clearing SD drive: ", err)
 	}
 	if err = os.Mkdir(Target, 0755); err != nil {
-		log.Fatal("Making target directory: ", err)
+		log.Fatalf("mkdir %s: %v", Target, err)
 	}
-	sync()
+	//sync()
 
 	// kill section intros and rearrange into a directory per section
 	var script []*Pair
@@ -133,25 +137,27 @@ func main() {
 			seccount++
 			secfolder = filepath.Join(Target, fmt.Sprintf("%02d-%s", seccount, section))
 			if err = os.Mkdir(secfolder, 0755); err != nil {
-				log.Fatal("Creating section folder ", secfolder, ": ", err)
+				log.Fatalf("mkdir %s: %v", secfolder, err)
 			}
 		}
-		script = append(script, &Pair{
-			elt,
-			filepath.Join(secfolder, fmt.Sprintf("%s-%s", track, article)),
-		})
+		targetName := filepath.Join(secfolder, fmt.Sprintf("%s-%s", track, article))
+		targetFile, err := os.Create(targetName)
+		if err != nil {
+			log.Fatalf("creating out file %s: %v", targetName, err)
+		}
+		script = append(script, &Pair{elt, targetName, targetFile})
 	}
 
 	// now actually do the copying/encoding
-	available := make(chan bool, Concurrent)
-	ack := make(chan bool)
+	available := make(chan struct{}, Concurrent)
+	ack := make(chan struct{})
 
 	// handle each individual job
 	go func() {
 		section := ""
-		for _, job := range script {
+		for i, job := range script {
 			// get a slot
-			available <- true
+			available <- struct{}{}
 
 			pieces := TargetName.FindStringSubmatch(job.Target)
 			if len(pieces) != 3 {
@@ -163,38 +169,53 @@ func main() {
 				log.Print("Section: ", section)
 			}
 
-			go func(pair *Pair, article string) {
+			go func(pair *Pair, article string, n int) {
 				log.Print("    ", article)
 
-				// copy the file over
-				if err := ioutil.WriteFile(pair.Target, contents[pair.Source], 0644); err != nil {
-					log.Fatalf("Error writing file %s: %v", pair.Target, err)
+				// write the file to a temporary location
+				temp1 := filepath.Join(os.TempDir(), fmt.Sprintf("economist-%d.mp3", n))
+				if err := ioutil.WriteFile(temp1, contents[pair.Source], 0644); err != nil {
+					log.Fatalf("Error writing file %s: %v", temp1, err)
+				}
+				defer os.Remove(temp1)
+
+				// copy the file over and change the tempo
+				temp2 := filepath.Join(os.TempDir(), fmt.Sprintf("economist-%d-sox.mp3", n))
+				defer os.Remove(temp2)
+				cmd := exec.Command(
+					"sox",
+					temp1,
+					temp2,
+					"tempo", "-s", TempoFactor)
+				if err = cmd.Run(); err != nil {
+					log.Fatal("running sox job for for ", pair.Target, ": ", err)
 				}
 
-				/*
-					// scale the volume
-					cmd := exec.Command(
-						"mp3gain",
-						"-g", ScalingFactor,
-						pair.Target)
-					if err := cmd.Run(); err != nil {
-						log.Fatal("Scaling volume for ", pair.Target, ": ", err)
-					}
-				*/
+				// copy the adjusted file to its final location
+				src, err := os.Open(temp2)
+				if err != nil {
+					log.Fatal("opening ", temp2, " for copying: ", err)
+				}
+				defer src.Close()
+
+				if _, err = io.Copy(pair.TargetFile, src); err != nil {
+					log.Fatal("copying ", temp2, " to ", pair.Target, ": ", err)
+				}
+				pair.TargetFile.Close()
 
 				// sync
-				fp, err := os.Open(pair.Target)
-				if err != nil {
-					log.Fatal("Opening file: ", err)
-				}
-				defer fp.Close()
-				if err = fp.Sync(); err != nil {
-					log.Fatal("Syncing file: ", err)
-				}
+				//fp, err := os.Open(pair.Target)
+				//if err != nil {
+				//	log.Fatalf("open %s: %v", pair.Target, err)
+				//}
+				//defer fp.Close()
+				//if err = fp.Sync(); err != nil {
+				//	log.Fatal("syncing %s: %v", pair.Target, err)
+				//}
 
-				ack <- true
+				ack <- struct{}{}
 				<-available
-			}(job, article)
+			}(job, article, i)
 
 			// pause a bit so it can (probably) get started
 			// before we launch the next one
